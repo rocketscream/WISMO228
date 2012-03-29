@@ -1,0 +1,41 @@
+#######################################
+# Syntax Coloring Map LowPower
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+WISMO228	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+init	KEYWORD2
+powerUp	KEYWORD2
+reset	KEYWORD2
+shutdown	KEYWORD2
+getRssi	KEYWORD2
+sendSms	KEYWORD2
+readSms	KEYWORD2
+openGPRS	KEYWORD2
+closeGPRS	KEYWORD2
+ping	KEYWORD2
+getHttp	KEYWORD2
+sendEmail	KEYWORD2
+getClock	KEYWORD2
+setClock	KEYWORD2
+
+#######################################
+# Instances (KEYWORD2)
+#######################################
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+NC	LITERAL1
+OFF	LITERAL1
+ON	LITERAL1
+GPRS_ON	LITERAL1
+ERROR	LITERAL1
