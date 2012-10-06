@@ -5,15 +5,14 @@
 
 #define NC	0xFF
 #define	BAUD_RATE	9600
-#define	REPLY_TIMEOUT 3000
-#define	PING_TIMEOUT	5000
-#define	SMS_TX_TIMEOUT	5000
-#define NETWORK_SEARCH_DELAY 10000
-#define STARTUP_DELAY 10000
+#define	MIN_TIMEOUT 3000
+#define	MED_TIMEOUT	5000
+#define MAX_TIMEOUT 10000
 #define	MINIMUM_SIGNAL_DBM	-113
 #define	CLOCK_COUNT_MAX 20
 #define	SMS_LENGTH_MAX	160
 #define	RESPONSE_TIME_MAX	6
+#define	RESPONSE_LENGTH_MAX 30
 
 enum status_t{ 
 	OFF, 
@@ -43,13 +42,17 @@ class WISMO228
 		bool	getHttp(const char *server, const char *path, const char *port, 
 									char *message, unsigned int limit);
 		
+		bool	putHttp(const char *server, const char *path, const char *port, 
+                  const char *host, const char *data, const char *controlKey, 
+									const char *contentType);					
+		
 		bool	sendEmail(const char *smtpServer, const char	*port, 
 										const char *username, const char *password, 
 										const char *recipient, const char *title, 
 										const char *content);
 		
 		bool	getClock(char *clock);
-		bool	setClock(char *clock);
+		bool	setClock(const char *clock);
 		
 		unsigned int	ping(const char	*url);
 		
@@ -66,9 +69,9 @@ class WISMO228
 		bool	openPort(const char	*server, const char *port);
 		bool	exchangeData();
 		bool	waitForReply(unsigned char count, long period);
-		bool	replyCheck(const char *expected, long period);
 		int	  rssiToDbm(int	rssi);
 		void	encodeBase64(const char *input, char *output);
+		void	readFlash(char *sourcePtr, char *targetPtr);
 		
 		SoftwareSerial	uart;
 		void	(*functionPtr)(void);

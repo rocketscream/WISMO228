@@ -1,8 +1,9 @@
 /*******************************************************************************
 * WISMO228 Library
-* Version: 1.00
-* Date: 28-03-2012
+* Version: 1.10
+* Date: 06-10-2012
 * Company: Rocket Scream Electronics
+* Author: Lim Phang Moh
 * Website: www.rocketscream.com
 *
 * This is an Arduino compatible library for WISMO228 GSM-GPRS module. 
@@ -24,20 +25,58 @@
 *
 * Revision  Description
 * ========  ===========
+* 1.10      Reduce the amount of RAM usage by moving all AT command responses
+*           from WISMO228 into flash which allows the complete use of the 
+*						"stream find" function.
+*           Added HTTP PUT method which can be used to upload data to Cosm or
+*           Pachube. Example are also added.
+*           Added retry mechanism to connect to GPRS.
+*           Added retry mechanism to open a port with remote server.
+*           Removed power up delay and replaced with module ready query.
+*
 * 1.00      Initial public release. Tested with L22 & L23 of WISMO228 firmware.
-*						Only works with Arduino IDE 1.0.
-*						HTTP POST method is not implemented yet.
-*						All "find" function (part of Stream class) will be replaced 
-*						with a similar function that all allows usage of string stored in 
-*						flash instead in the next revision. 
+*						Only works with Arduino IDE 1.0 & 1.0.1.
 *******************************************************************************/
 // ***** INCLUDES *****
 #include "WISMO228.h"
 #include <Arduino.h>
 
+// ***** CONSTANTS *****
+// ***** EXPECTED WISMO228 RESPONSE *****
+prog_char ok[] PROGMEM = "OK"; 
+prog_char simOk[] PROGMEM = "\r\n+CPIN: READY\r\n\r\nOK\r\n";
+prog_char networkOk[] PROGMEM = "\r\n+CREG: 0,1\r\n\r\nOK\r\n";
+prog_char smsCursor[] PROGMEM = "\r\n> ";
+prog_char smsSendOk[] PROGMEM = "\r\n+CMGS: ";
+prog_char smsList[] PROGMEM = "\r\n+CMGL: ";
+prog_char smsUnread[] PROGMEM = "\"REC UNREAD\",\"+";
+prog_char commaQuoteMark[] PROGMEM = ",\"";
+prog_char quoteMark[] PROGMEM = "\"";
+prog_char newLine[] PROGMEM = "\r\n";
+prog_char carriegeReturn[] PROGMEM = "\r";
+prog_char lineFeed[] PROGMEM = "\n";
+prog_char pingOk[] PROGMEM = "\r\nOK\r\n\r\n+WIPPING: 0,0,";
+prog_char clockOk[] PROGMEM = "\r\n+CCLK: \"";
+prog_char rssiCheck[] PROGMEM = "\r\n+CSQ: ";
+prog_char portOk[] PROGMEM = "\r\nOK\r\n\r\n+WIPREADY: 2,1\r\n";
+prog_char connectOk[] PROGMEM = "\r\nCONNECT\r\n";
+prog_char dataOk[] PROGMEM = "\r\n+WIPDATA: 2,1,";
+prog_char usernamePrompt[] PROGMEM = "334 VXNlcm5hbWU6\r\n";
+prog_char passwordPrompt[] PROGMEM = "334 UGFzc3dvcmQ6\r\n";
+prog_char authenticationOk[] PROGMEM = "235 Authentication succeeded\r\n";
+prog_char senderOk[] PROGMEM = "250 OK\r\n";
+prog_char recipientOk[] PROGMEM = "250 Accepted\r\n";
+prog_char emailInputPrompt[] PROGMEM = "354 ";
+prog_char emailSent[] PROGMEM = "250 OK ";
+prog_char shutdownLink[] PROGMEM = "SHUTDOWN";
+
+// ***** BASE64 ENCODING TABLE *****
 prog_uchar	base64Table[] PROGMEM =	{"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 																			"abcdefghijklmnopqrstuvwxyz"
 																			"0123456789+/"};
+
+// ***** VARIABLES *****
+char responseBuffer[RESPONSE_LENGTH_MAX];
 
 WISMO228::WISMO228(unsigned char rxPin, unsigned char txPin, 
 									 unsigned char onOffPin): uart(rxPin, txPin)
@@ -127,7 +166,6 @@ void	WISMO228::init()
 *******************************************************************************/
 bool	WISMO228::powerUp()
 {
-	unsigned long	timeout;
 	bool	success = false;
 	
 	if (status == OFF)
@@ -144,17 +182,11 @@ bool	WISMO228::powerUp()
 			// WISMO228 is powered up
 			status = ON;
 		}
-		
-		// Wait for WISMO228 to get ready
-		//while (digitalRead(A1) == LOW);
-		
-		timeout = millis() + STARTUP_DELAY;
-		while (timeout > millis());
-		
+				
 		// Remove power up invalid characters
 		uart.flush();
 		// Configure reply timeout period
-		uart.setTimeout(REPLY_TIMEOUT);
+		uart.setTimeout(MIN_TIMEOUT);
 		
 		// Turn echo off to ease serial congestion
 		if (offEcho())
@@ -215,11 +247,11 @@ void	WISMO228::shutdown()
 		delay(100);
 		digitalWrite(_onOffPin, HIGH);
 		delay(3000);										// Stated as 5500 ms in datasheet, 
-		digitalWrite(_onOffPin, LOW);		// but 3000 ms is good enough
+		digitalWrite(_onOffPin, LOW);		// but 3000 ms works fine
 
 		uart.flush();
 		uart.end();
-		// WISMO228 is shutdown
+		// WISMO228 is in shutdown mode
 		status = OFF;
 	}
 }
@@ -243,16 +275,15 @@ bool	WISMO228::simReady()
 	bool	success = false;
 	unsigned long	timeout;
 	
-	timeout = millis() + STARTUP_DELAY;
+	readFlash(simOk, responseBuffer);
+	timeout = millis() + MAX_TIMEOUT;
 		
 	// Wait for SIM card initialization
 	while (timeout > millis())
 	{
 		uart.println(F("AT+CPIN?"));
-		
-		//if (replyCheck("\r\n+CPIN: READY\r\n\r\nOK\r\n\0", 
-		// 							 REPLY_TIMEOUT))
-		if (uart.find("\r\n+CPIN: READY\r\n\r\nOK\r\n\0"))
+
+		if (uart.find(responseBuffer))
 		{
 			success = true;
 			break;
@@ -279,29 +310,22 @@ bool	WISMO228::simReady()
 bool	WISMO228::offEcho()
 {
 	bool	success = false;
-	char	rxByte;
+	unsigned long	timeout;
 	
-	uart.println(F("ATE0"));
-	
-	if (waitForReply(1, REPLY_TIMEOUT))
-	{
-		rxByte = uart.peek();
+	readFlash(ok, responseBuffer);
+
+	timeout = millis() + MAX_TIMEOUT;
 		
-		if (rxByte == 'A')
-		{
-			//if (replyCheck("ATE0\r\n\r\nOK\r\n\0", REPLY_TIMEOUT))
-			if (uart.find("ATE0\r\n\r\nOK\r\n\0"))
-			{	
-				success = true;
-			}
-		}
-		else
-		{
-			//if (replyCheck("\r\nOK\r\n\0", REPLY_TIMEOUT))
-			if (uart.find("\r\nOK\r\n\0"))
-			{	
-				success = true;
-			}
+	// Try to turn off echo upon power up (some unknown carrier setup message 
+	// might be available)
+	while (timeout > millis())
+	{
+		uart.println(F("ATE0"));
+			
+		if (uart.find(responseBuffer))
+		{	
+			success = true;
+			break;
 		}
 	}
 	return (success);
@@ -326,15 +350,16 @@ bool	WISMO228::registerNetwork()
 	bool	success = false;
 	unsigned long	timeout;
 	
-	timeout = millis() + NETWORK_SEARCH_DELAY;
+	timeout = millis() + MAX_TIMEOUT;
 		
 	// Wait for network registeration
 	while (timeout > millis())
 	{
 		uart.println(F("AT+CREG?"));
 		
-		//if (replyCheck("\r\n+CREG: 0,1\r\n\r\nOK\r\n\0", REPLY_TIMEOUT))
-		if (uart.find("\r\n+CREG: 0,1\r\n\r\nOK\r\n\0"))
+		readFlash(networkOk, responseBuffer);
+
+		if (uart.find(responseBuffer))
 		{	
 			success = true;
 			break;
@@ -364,9 +389,10 @@ bool WISMO228::textModeSms()
 		
 	// Text mode SMS
 	uart.println(F("AT+CMGF=1"));
-		
-	//if (replyCheck("\r\nOK\r\n\0", REPLY_TIMEOUT))
-	if (uart.find("\r\nOK\r\n\0"))
+	
+	readFlash(ok, responseBuffer);
+	
+	if (uart.find(responseBuffer))
 	{
 		success = true;
 	}
@@ -395,12 +421,13 @@ bool WISMO228::newSmsSetup()
 	// User RING pin (falling edge) as new message indication
 	uart.println(F("AT+PSRIC=2,0"));
 	
-	//if (replyCheck("\r\nOK\r\n\0", REPLY_TIMEOUT))
-	if (uart.find("\r\nOK\r\n\0"))
+	readFlash(ok, responseBuffer);
+	
+	if (uart.find(responseBuffer))
 	{
 		// Attach interrupt for RING pin as new SMS indicator
 		attachInterrupt((_ringPin - 2), functionPtr, FALLING); 
-		//digitalWrite(_ringPin, HIGH);
+
 		success = true;
 	}
 	
@@ -427,6 +454,9 @@ bool	WISMO228::sendSms(const char *recipient, const char *message)
 {
 	bool success = false;
 	
+	// Revert to minimum response time	
+	uart.setTimeout(MIN_TIMEOUT);
+	
 	// If WISMO228 is powered on
 	if (status == ON)
 	{
@@ -440,25 +470,33 @@ bool	WISMO228::sendSms(const char *recipient, const char *message)
 			uart.println(F("\""));
 			
 			// Writing SMS takes more time compared to other task
-			uart.setTimeout(SMS_TX_TIMEOUT);
+			uart.setTimeout(MED_TIMEOUT);
 			
-			// Wait for message writing prompt
-			if (uart.find("\r\n> \0"))
+			readFlash(smsCursor, responseBuffer);
+			
+			// Wait for SMS writing prompt (cursor)
+			if (uart.find(responseBuffer))
 			{
+				// Write the message
 				uart.print(message);
+				// End the message
 				uart.write(26);
-			
-				if (uart.find("\r\n+CMGS: \0"))
+				
+				readFlash(smsSendOk, responseBuffer);
+				
+				if (uart.find(responseBuffer))
 				{
 					// Revert back to normal reply timeout
-					uart.setTimeout(REPLY_TIMEOUT);
+					uart.setTimeout(MIN_TIMEOUT);
 					
-					if (waitForReply(3, REPLY_TIMEOUT))
+					if (waitForReply(3, MIN_TIMEOUT))
 					{
 						// Read out all SMS ID
 						while ((char)uart.read() != '\r');
-					
-						if (uart.find("\n\r\nOK\r\n\0"))
+						
+						readFlash(ok, responseBuffer);
+						
+						if (uart.find(responseBuffer))
 						{
 							success = true;
 						}
@@ -494,6 +532,9 @@ bool WISMO228::readSms(char *sender, char *message)
 	char	*indexPtr;
 	char	rxByte;
 	
+	// Revert to minimum response time	
+	uart.setTimeout(MIN_TIMEOUT);
+	
 	if (status == ON)
 	{
 		// Clear any unwanted data in UART
@@ -501,11 +542,13 @@ bool WISMO228::readSms(char *sender, char *message)
 		// Retrieve unread SMS
 		uart.println(F("AT+CMGL=\"REC UNREAD\""));
 		
-		if (uart.find("\r\n+CMGL: "))
+		readFlash(smsList, responseBuffer);
+
+		if (uart.find(responseBuffer))
 		{
 			// Maximum index is 255 (3 characters)
 			// 4th character is ","
-			if (waitForReply(4, REPLY_TIMEOUT))
+			if (waitForReply(4, MIN_TIMEOUT))
 			{
 				// Initialize the SMS index string
 				indexPtr = index;
@@ -521,7 +564,9 @@ bool WISMO228::readSms(char *sender, char *message)
 				// Terminate the index string
 				*indexPtr = '\0';
 				
-				if (uart.find("\"REC UNREAD\",\"+\0"))
+				readFlash(smsUnread, responseBuffer);
+				
+				if (uart.find(responseBuffer))
 				{			
 					do
 					{
@@ -535,7 +580,9 @@ bool WISMO228::readSms(char *sender, char *message)
 					// Terminate the sender string
 					*sender = '\0';
 					
-					if (uart.find(",\"\0"))
+					readFlash(commaQuoteMark, responseBuffer);
+
+					if (uart.find(responseBuffer))
 					{
 						do
 						{
@@ -545,10 +592,10 @@ bool WISMO228::readSms(char *sender, char *message)
 						}
 						while (rxByte != '"');
 						
-						if (uart.find(",\"\0"))
+						if (uart.find(responseBuffer))
 						{
 							// We are running at ligthning speed, have to wait for data
-							if (waitForReply(CLOCK_COUNT_MAX, REPLY_TIMEOUT))
+							if (waitForReply(CLOCK_COUNT_MAX, MIN_TIMEOUT))
 							{
 								// Retrieve time stamping 
 								for (rxCount = CLOCK_COUNT_MAX; rxCount > 0; rxCount--)
@@ -556,39 +603,47 @@ bool WISMO228::readSms(char *sender, char *message)
 									// Can be used for time reference
 									rxByte = uart.read();
 								}
-
-								if (uart.find("\"\r\n\0"))
-								{
-									if (waitForReply(1, REPLY_TIMEOUT))
-									{
-										rxByte = uart.read();
-							
-										// Message can be empty
-										while (rxByte != '\r')
-										{
-											// Save SMS message
-											*message++ = rxByte;
-											// We are running faster than incoming data
-											while (!uart.available());
-											rxByte = uart.read();
-										}
-							
-										// Terminate the message string
-										*message = '\0';
-
-										if (uart.find("\nOK\r\n\0"))
-										{
-											// Delete the SMS to avoid overflow
-											uart.print(F("AT+CMGD="));
-											uart.println(index);
 								
-											if (uart.find("\r\nOK\r\n\0"))
+								readFlash(quoteMark, responseBuffer);
+								
+								if (uart.find(responseBuffer))
+								{
+									readFlash(newLine, responseBuffer);
+
+									if (uart.find(responseBuffer))
+									{
+										if (waitForReply(1, MIN_TIMEOUT))
+										{
+											rxByte = uart.read();
+							
+											// Message can be empty
+											while (rxByte != '\r')
 											{
-												success = true;
+												// Save SMS message
+												*message++ = rxByte;
+												// We are running faster than incoming data
+												while (!uart.available());
+												rxByte = uart.read();
+											}
+							
+											// Terminate the message string
+											*message = '\0';
+											readFlash(ok, responseBuffer);
+
+											if (uart.find(responseBuffer))
+											{
+												// Delete the SMS to avoid memory overflow
+												uart.print(F("AT+CMGD="));
+												uart.println(index);
+								
+												if (uart.find(responseBuffer))
+												{
+													success = true;
+												}
 											}
 										}
-									}
-								}	
+									}	
+								}
 							}
 						}
 					}
@@ -620,6 +675,10 @@ bool WISMO228::openGPRS(const char *apn, const char *username,
 												const char *password)
 {
 	bool success = false;
+	unsigned char attempt;
+	
+	// Revert to minimum response time	
+	uart.setTimeout(MIN_TIMEOUT);
 	
 	if (status == ON)
 	{
@@ -628,42 +687,53 @@ bool WISMO228::openGPRS(const char *apn, const char *username,
 		// Start TCP/IP stack
 		uart.println(F("AT+WIPCFG=1"));
 		
-		if (replyCheck("\r\nOK\r\n\0", REPLY_TIMEOUT))
+		readFlash(ok, responseBuffer);
+
+		if (uart.find(responseBuffer))
 		{
 			// Open GPRS bearer
 			uart.println(F("AT+WIPBR=1,6"));
 			
-			if (replyCheck("\r\nOK\r\n\0", REPLY_TIMEOUT))
+			if (uart.find(responseBuffer))
 			{
 				// Set the APN
 				uart.print(F("AT+WIPBR=2,6,11,\""));
 				uart.print(apn);
 				uart.println(F("\""));
 				
-				if (replyCheck("\r\nOK\r\n\0", REPLY_TIMEOUT))
+				if (uart.find(responseBuffer))
 				{
 					// Set the username
 					uart.print(F("AT+WIPBR=2,6,0,\""));
 					uart.print(username);
 					uart.println(F("\""));
 					
-					if (replyCheck("\r\nOK\r\n\0", REPLY_TIMEOUT))
+					if (uart.find(responseBuffer))
 					{
 						// Set the password
-						uart.print(F("AT+WIPBR=2,6,11,\""));
+						uart.print(F("AT+WIPBR=2,6,1,\""));
 						uart.print(password);
 						uart.println(F("\""));
 						
-						if (replyCheck("\r\nOK\r\n\0", REPLY_TIMEOUT))
+						if (uart.find(responseBuffer))
 						{
-							// Start GPRS bearer
-							uart.println(F("AT+WIPBR=4,6,0"));
+							// It takes slightly longer to start GPRS bearer 	
+							uart.setTimeout(MED_TIMEOUT);						
 							
-							if (replyCheck("\r\nOK\r\n\0", REPLY_TIMEOUT))
+							// Maximum 3 attempt to connect to GPRS as base station might not
+              // have enough time slots for GPRS as voice call is given priority
+							for (attempt = 3; attempt > 0; attempt--)
 							{
-								// GPRS connection is up
-								status = GPRS_ON;
-								success = true;
+								// Start GPRS bearer
+								uart.println(F("AT+WIPBR=4,6,0"));
+							
+								if (uart.find(responseBuffer))
+								{
+									// GPRS connection is up
+									status = GPRS_ON;
+									success = true;
+									break;
+								}
 							}
 						}
 					}
@@ -693,6 +763,9 @@ bool WISMO228::closeGPRS()
 {
 	bool success = false;
 	
+	// Revert to minimum response time	
+	uart.setTimeout(MIN_TIMEOUT);
+	
 	// Only close GPRS connection if currently on
 	if (status == GPRS_ON)
 	{
@@ -701,7 +774,9 @@ bool WISMO228::closeGPRS()
 		// Stop TCP/IP stack (automatically detach from GPRS)
 		uart.println(F("AT+WIPCFG=0"));
 		
-		if (replyCheck("\r\nOK\r\n\0", REPLY_TIMEOUT))
+		readFlash(ok, responseBuffer);
+		
+		if (uart.find(responseBuffer))
 		{
 			// Revert to on mode
 			status = ON;
@@ -728,12 +803,15 @@ bool WISMO228::closeGPRS()
 *
 *******************************************************************************/
 unsigned int	WISMO228::ping(const char	*url)
-{
+{	
 	// Ping response time
 	unsigned int	responseTime = 0;
 	char	responseTimeStr[RESPONSE_TIME_MAX];
 	char	*responseTimeStrPtr;
 	char	rxByte;
+	
+	// Revert to minimum response time	
+	uart.setTimeout(MIN_TIMEOUT);
 	
 	// Needs GPRS connection to execute ping
 	if (status == GPRS_ON)
@@ -745,29 +823,30 @@ unsigned int	WISMO228::ping(const char	*url)
 		uart.print(url);
 		uart.println(F("\""));
 
-		if (replyCheck("\r\nOK\r\n\r\n+WIPPING: \0", PING_TIMEOUT))
+		readFlash(pingOk, responseBuffer);
+
+		// If ping is successful
+		if (uart.find(responseBuffer))
 		{
-			// Ping is successful
-			if (replyCheck("0,0,\0", REPLY_TIMEOUT))
+			// Initialize string of response time array
+			responseTimeStrPtr = responseTimeStr;
+				
+			do
 			{
-				// Initialize string of response time array
-				responseTimeStrPtr = responseTimeStr;
+				while (!uart.available());
+				rxByte = uart.read();
+				*responseTimeStrPtr++ = rxByte;
+			}	while (rxByte != '\r');
 					
-				do
-				{
-					while (!uart.available());
-					rxByte = uart.read();
-					*responseTimeStrPtr++ = rxByte;
-				}	while (rxByte != '\r');
-					
-				// Terminate the string
-				*responseTimeStrPtr = '\0';
-					
-				if (replyCheck("\n\0", REPLY_TIMEOUT))
-				{
-					// Convert port number into string
-					sscanf(responseTimeStr, "%u", &responseTime);
-				}
+			// Terminate the string
+			*responseTimeStrPtr = '\0';
+				
+			readFlash(lineFeed, responseBuffer);	
+	
+			if (uart.find(responseBuffer))
+			{
+				// Convert port number into string
+				sscanf(responseTimeStr, "%u", &responseTime);
 			}
 		}
 	}
@@ -809,6 +888,9 @@ bool	WISMO228::getHttp(const char *server, const char *path, const char	*port,
 	char	rxByte;
 	bool	success = false;
 	
+	// Revert to minimum response time	
+	uart.setTimeout(MIN_TIMEOUT);
+	
 	// If currently attach to GPRS
 	if (status == GPRS_ON)
 	{
@@ -842,40 +924,18 @@ bool	WISMO228::getHttp(const char *server, const char *path, const char	*port,
 				// Revert back to AT command mode
 				uart.print(F("+++"));
 				
-				if (replyCheck("\r\n\0", REPLY_TIMEOUT))
-				{
-					if (waitForReply(1, REPLY_TIMEOUT))
+				// Expecting an "OK" response
+				readFlash(ok, responseBuffer);
+				
+				if (uart.find(responseBuffer))
+				{								
+					// Close the TCP socket with server
+					uart.println(F("AT+WIPCLOSE=2,1"));
+					
+					// Expecting an "OK" response
+					if (uart.find(responseBuffer))
 					{
-						rxByte = uart.read();
-						
-						// If <CR><LF>OK<CR><LF> is received
-						if (rxByte == 'O')
-						{
-							if (replyCheck("K\r\n\0", REPLY_TIMEOUT))
-							{
-								// Close the TCP socket with server
-								uart.println(F("AT+WIPCLOSE=2,1"));
-					
-								if (replyCheck("\r\nOK\r\n\0", REPLY_TIMEOUT))
-								{
-									success = true;
-								}
-							}
-						}
-						// Server closes session automatically
-						if (rxByte == '+')
-						{
-							if (replyCheck("WIPPEERCLOSE: 2,1\r\n\r\nOK\r\n\0", REPLY_TIMEOUT))
-							{
-								// Close the TCP socket with server
-								uart.println(F("AT+WIPCLOSE=2,1"));
-					
-								if (replyCheck("\r\nOK\r\n\0", REPLY_TIMEOUT))
-								{
-									success = true;
-								}
-							}
-						}
+						success = true;
 					}
 				}
 			}
@@ -889,23 +949,131 @@ bool	WISMO228::getHttp(const char *server, const char *path, const char	*port,
 }
 
 /*******************************************************************************
-* Name: postHttp
-* Description: Perform HTTP method POST to retrieve or send data to a server.
+* Name: putHttp
+* Description: Perform HTTP method PUT to send data to a server.
 *
 * Argument  			Description
 * =========  			===========
-* 1. NIL
+* 1. server     	URL of the server.
+*									Example: www.google.com, 200.200.200.200
+*
+* 2. path					The path or directory to access in the server. 
+*									Examples: 
+*									"/" - No directory is required.
+*									"/directory/subdirectory" - Directory is required.
+*									"/script.php?data=value" - For sending data to server.
+*
+*	3. port					Server TCP port number from 0-65535.
+*
+*	4. host					Host of the residing end application. Typically same as the 
+*									server.
+*
+*	5. data				  Data in the following format:
+*									dataName1,value\r\ndataName2,value\r\n
+*									Each line consist of a data name separated by a comma and it's
+*									corresponding value. The new line feed is required for each
+*									data entry.
+*	6. controlKey		Control key name and it's value which is specified by the 
+*									server hosting the application in the following format:
+*									ControlKeyName: Value					 
+*
+* 7. contentType	Type of content which is being sent over.
 *	
 * Return					Description
 * =========				===========
-* 1. NIL 			
+* 1. success 			Returns true if the procedure is successful and false if 
+*									otherwise.	
 *
 *******************************************************************************/
-bool	postHttp(char *server, char *path, unsigned int port, char *message)
+bool	WISMO228::putHttp(const char *server, const char *path, const char *port, 
+              const char *host, const char *data, const char *controlKey, 
+							const char *contentType)
 {
 	bool	success = false;
 	
-	// To be implemented
+	// Revert to minimum response time	
+	uart.setTimeout(MIN_TIMEOUT);
+	
+	// If currently attach to GPRS
+	if (status == GPRS_ON)
+	{
+		// Clear any unwanted data in UART
+		uart.flush();
+
+		// Open a port with remote server	
+		if (openPort(server, port))
+		{		
+			// Enter transparent data mode
+			if (exchangeData())
+			{
+				uart.print(F("PUT "));
+				uart.print(path);
+				uart.println(F(" HTTP/1.1"));
+				uart.print(F("Host: "));
+				uart.println(host);
+				uart.println(controlKey);
+				uart.print(F("Content-Length: "));
+				uart.println(strlen(data));
+				uart.print(F("Content-Type: "));
+				uart.println(contentType);
+				uart.println(F("Connection: close"));
+				uart.println();
+				uart.print(data);
+				uart.print("\n");
+				
+				// If you need to retrieve the whole response from the remote server,
+				// retrieve the response starting from here
+				
+				// It takes more time for server to response to a PUT request	
+				uart.setTimeout(MED_TIMEOUT);
+				// Expecting an OK from remote server
+				readFlash(ok, responseBuffer);
+				
+				// If HTTP PUT request successful
+				if (uart.find(responseBuffer))
+				{
+					// Expecting a SHUTDOWN signal from remote server
+					readFlash(shutdownLink, responseBuffer);
+					
+					if (uart.find(responseBuffer))
+					{
+						// PUT request completed
+						success = true;
+					}
+				}
+				// Revert back to normal reply timeout
+				uart.setTimeout(MIN_TIMEOUT);
+						
+				// Revert back to AT command mode
+				uart.print(F("+++"));
+				
+				// Expecting an OK from remote server
+				readFlash(ok, responseBuffer);
+						
+				if (uart.find(responseBuffer))
+				{
+					// Close the TCP socket with server
+					uart.println(F("AT+WIPCLOSE=2,1"));
+					
+					// Expecting an "OK" response
+					if (uart.find(responseBuffer))
+					{
+						// Port properly closed
+					}
+				}
+			}
+			else
+			{
+				uart.println(F("AT+WIPCLOSE=2,1"));
+				
+				// Expecting an "OK" response
+				if (uart.find(responseBuffer))
+				{
+					// Port properly closed
+				}
+			}	
+		}
+	}
 	
 	return (success);
 }
@@ -953,6 +1121,8 @@ bool WISMO228::sendEmail(const char *smtpServer, const char *port,
 	unsigned	int	dataCount;
 	//unsigned long	timeout;
 
+	// Revert to minimum response time	
+	uart.setTimeout(MIN_TIMEOUT);
 	
 	// If currently attach to GPRS
 	if (status == GPRS_ON)
@@ -962,7 +1132,12 @@ bool WISMO228::sendEmail(const char *smtpServer, const char *port,
 		
 		if (openPort(smtpServer, port))
 		{
-			if (replyCheck("\r\n+WIPDATA: 2,1,\0", 5000))
+			readFlash(dataOk, responseBuffer);
+			
+			// Retrieving data from web takes longer time
+			uart.setTimeout(MED_TIMEOUT);
+			
+			if (uart.find(responseBuffer))
 			{
 				dataCountStrPtr = dataCountStr;
 				
@@ -979,7 +1154,11 @@ bool WISMO228::sendEmail(const char *smtpServer, const char *port,
 				// Convert data count into unsigned integer
 				sscanf(dataCountStr, "%u", &dataCount);
 				
-				if (replyCheck("\n\0", REPLY_TIMEOUT))
+				uart.setTimeout(MIN_TIMEOUT);
+				
+				readFlash(lineFeed, responseBuffer);
+				
+				if (uart.find(responseBuffer))
 				{			
 					if (exchangeData())
 					{
@@ -993,56 +1172,67 @@ bool WISMO228::sendEmail(const char *smtpServer, const char *port,
 						// Start communicating with server using extended SMTP protocol
 						uart.println(F("EHLO"));
 						
-						// Retrieve subsequent response from server within a stipulated time
-						//timeout = millis() + 5000;
-						
 						delay (5000);
-						/*while (millis() < timeout)
-						{
-							while (!uart.available());
-							rxByte = uart.read();
-						}*/
+
 						uart.flush();
 				
 						// Initiate account login
 						uart.println(F("AUTH LOGIN"));
-				
-						// Receive the username prompt in base 64 format
-						if (replyCheck("334 VXNlcm5hbWU6\r\n\0", REPLY_TIMEOUT))
+						
+						// Retrieve string of username prompt in base 64 format from flash
+						readFlash(usernamePrompt, responseBuffer);
+							
+						// If receive the username prompt in base 64 format
+						if (uart.find(responseBuffer))
 						{
 							// Encode username into base 64 format
 							encodeBase64(username, base64);
 							// Send username in base 64 format
 							uart.println(base64);
 							
-							// Receive the password prompt in base 64 format
-							if (replyCheck("334 UGFzc3dvcmQ6\r\n\0", REPLY_TIMEOUT))
+							// Retrieve string of password prompt in base 64 format from flash
+							readFlash(passwordPrompt, responseBuffer);
+							
+							// If receive the password prompt in base 64 format
+							if (uart.find(responseBuffer))
 							{
 								// Encode username into base 64 format
 								encodeBase64(password, base64);		
 								// Send password in base 64 format
 								uart.println(base64);
 								
-								if (replyCheck("235 Authentication succeeded\r\n\0", 
-																REPLY_TIMEOUT))
+								// Retrieve string of authentication success in base 64 format 
+								// from flash
+								readFlash(authenticationOk, responseBuffer);
+								
+								// If receive authentication success
+								if (uart.find(responseBuffer))
 								{
 									// Email sender
 									uart.print(F("MAIL FROM: "));
 									uart.println(username);
 									
-									if (replyCheck("250 OK\r\n\0", REPLY_TIMEOUT))
+									readFlash(senderOk, responseBuffer);
+									
+									// If sender ok
+									if (uart.find(responseBuffer))
 									{
 										// Email recipient
 										uart.print(F("RCPT TO: "));
 										uart.println(recipient);
 										
-										if (replyCheck("250 Accepted\r\n\0", REPLY_TIMEOUT))
+										readFlash(recipientOk, responseBuffer);
+										
+										// If recipient ok
+										if (uart.find(responseBuffer))
 										{
 											// Start of email body
 											uart.println(F("DATA"));
 											
-											// Receive start email input prompt
-											if (replyCheck("354 \0", REPLY_TIMEOUT))
+											readFlash(emailInputPrompt, responseBuffer);
+											
+											// If receive start email input prompt
+											if (uart.find(responseBuffer))
 											{
 												// Remaining data consists of email input instruction 
 												do
@@ -1064,9 +1254,11 @@ bool WISMO228::sendEmail(const char *smtpServer, const char *port,
 												// Email message
 												uart.print(content);
 												uart.print(F("\r\n.\r\n"));
-													
+												
+												readFlash(emailSent, responseBuffer);
+												
 												// Email successfully sent
-												if (replyCheck("250 OK \0", REPLY_TIMEOUT))
+												if (uart.find(responseBuffer))
 												{
 													// Remaining data consists of incomprehensible 
 													// email sent ID
@@ -1083,14 +1275,16 @@ bool WISMO228::sendEmail(const char *smtpServer, const char *port,
 													delay(1000);
 													// Revert to AT command mode
 													uart.print(F("+++"));
-						
+													
+													readFlash(ok, responseBuffer);
+													
 													// Data mode exited successfully
-													if (replyCheck("\r\nOK\r\n\0", REPLY_TIMEOUT))
+													if (uart.find(responseBuffer))
 													{
 														// Close the TCP socket
 														uart.println(F("AT+WIPCLOSE=2,1"));
 										
-														if (replyCheck("\r\nOK\r\n\0", REPLY_TIMEOUT))
+														if (uart.find(responseBuffer))
 														{
 															success = true;
 														}	
@@ -1134,6 +1328,9 @@ bool WISMO228::getClock(char *clock)
 	bool success = false;
 	unsigned	char	clockCount;
 	
+	// Revert to minimum response time	
+	uart.setTimeout(MIN_TIMEOUT);
+	
 	// If WISMO228 is on
 	if (status == ON)
 	{
@@ -1143,9 +1340,11 @@ bool WISMO228::getClock(char *clock)
 		// Request current clock
 		uart.println(F("AT+CCLK?"));
 		
-		if (replyCheck("\r\n+CCLK: \"", REPLY_TIMEOUT))
+		readFlash(clockOk, responseBuffer);
+		
+		if (uart.find(responseBuffer))
 		{
-			if (waitForReply(CLOCK_COUNT_MAX, REPLY_TIMEOUT))
+			if (waitForReply(CLOCK_COUNT_MAX, MIN_TIMEOUT))
 			{
 				for (clockCount = CLOCK_COUNT_MAX; clockCount > 0; clockCount--)
 				{
@@ -1156,7 +1355,10 @@ bool WISMO228::getClock(char *clock)
 				// Terminate the clock string
 				*clock = '\0';
 				
-				if (replyCheck("\"\r\n\r\nOK\r\n", REPLY_TIMEOUT))
+				// Expecting an "OK" response
+				readFlash(ok, responseBuffer);
+				
+				if (uart.find(responseBuffer))
 				{
 					success = true;
 				}
@@ -1184,9 +1386,12 @@ bool WISMO228::getClock(char *clock)
 * 1. success 			True if clock is set successfully or false if otherwise. 
 *
 *******************************************************************************/
-bool WISMO228::setClock(char *clock)
+bool WISMO228::setClock(const char *clock)
 {
 	bool success = false;
+	
+	// Revert to minimum response time	
+	uart.setTimeout(MIN_TIMEOUT);
 	
 	if (status == ON)
 	{
@@ -1200,7 +1405,10 @@ bool WISMO228::setClock(char *clock)
 			uart.print(clock);
 			uart.print(F("\"\r\n"));
 			
-			if (replyCheck("\r\nOK\r\n", REPLY_TIMEOUT))
+			// Expecting an "OK" response
+			readFlash(ok, responseBuffer);
+			
+			if (uart.find(responseBuffer))
 			{
 				success = true;
 			}
@@ -1230,13 +1438,18 @@ int	WISMO228::getRssi()
 	
 	rssi = 0;
 	
+	// Revert to minimum response time	
+	uart.setTimeout(MIN_TIMEOUT);
+	
 	if (status == ON)
 	{
 		// Clear any unwanted data in UART
 		uart.flush();
 		uart.println(F("AT+CSQ"));
 		
-		if (replyCheck("\r\n+CSQ: \0", REPLY_TIMEOUT))
+		readFlash(rssiCheck, responseBuffer);
+		
+		if (uart.find(responseBuffer))
 		{
 			while (!uart.available());
 			
@@ -1276,6 +1489,9 @@ int	WISMO228::getRssi()
 						
 						rxByte = uart.read();
 						
+						// Expecting an "OK" response
+						readFlash(ok, responseBuffer);
+						
 						switch (rxByte)
 						{
 							case '0':
@@ -1287,7 +1503,7 @@ int	WISMO228::getRssi()
 							case '6':
 							case '7':
 								// Check ending sequence
-								if (!replyCheck("\r\n\r\nOK\r\n\0", REPLY_TIMEOUT))
+								if (!uart.find(responseBuffer))
 								{
 									rssi = 0;
 								}
@@ -1300,7 +1516,7 @@ int	WISMO228::getRssi()
 								if (rxByte == '9')
 								{
 									// Check ending sequence
-									if (!replyCheck("\r\n\r\nOK\r\n\0", REPLY_TIMEOUT))
+									if (!uart.find(responseBuffer))
 									{
 										rssi = 0;
 									}
@@ -1342,56 +1558,6 @@ int	WISMO228::rssiToDbm(int	rssi)
 	rssi = (rssi*2) + MINIMUM_SIGNAL_DBM;
 
 	return (rssi);				
-}
-
-/*******************************************************************************
-* Name: replyCheck
-* Description: Check reply from WISMO228 within a certain time frame.
-*
-* Argument  			Description
-* =========  			===========
-* 1. expected			Expected response from WISMO228 module.				
-*
-*	2. period				Time frame to wait for the reply from WISMO228 module.
-*
-* Return					Description
-* =========				===========
-* 1. success			True if the response from the WISMO228 module is as expected
-*									within the stipulated time frame or false if otherwise.
-*
-*******************************************************************************/
-bool WISMO228::replyCheck(const char *expected, long period)
-{
-	unsigned char	rxCount;
-	bool	success = false;
-	unsigned long	timeout;
-	
-	// Maximum waiting time for response
-	timeout = millis() + period;
-	
-	while (timeout > millis())
-	{
-		if (uart.available() >= (unsigned char)strlen(expected))
-		{
-			for (rxCount = strlen(expected); rxCount > 0; rxCount--)
-			{
-				if (uart.read() == *expected)
-				{
-					// Check next character
-					expected++;
-				}
-				else
-				{
-					break;
-				}
-			}
-			
-			if (rxCount == 0)	success = true;
-			break;
-		}
-	}
-	
-	return (success);
 }
 
 /*******************************************************************************
@@ -1448,17 +1614,34 @@ bool	WISMO228::waitForReply(unsigned char count, long period)
 bool	WISMO228::openPort(const char	*server, const char *port)
 {
 	bool	success = false;
+	unsigned	char	attempt;
 	
-	// Create a TCP client socket with server with desired port number
-	uart.print(F("AT+WIPCREATE=2,1,\""));
-	uart.print(server);
-	uart.print(F("\","));
-	uart.println(port);
-		
-	if (replyCheck("\r\nOK\r\n\r\n+WIPREADY: 2,1\r\n\0", REPLY_TIMEOUT))
+	// It takes more time for server to response to port open request	
+	uart.setTimeout(MED_TIMEOUT);
+	
+	// Expecting port open OK response	
+	readFlash(portOk, responseBuffer);	
+	
+	// Maximum 3 attempt to open a port with remote server
+	for (attempt = 3; attempt > 0; attempt--)
 	{
-		success = true;
+		// Create a TCP client socket with server with desired port number
+		uart.print(F("AT+WIPCREATE=2,1,\""));
+		uart.print(server);
+		uart.print(F("\","));
+		uart.println(port);
+		
+		if (uart.find(responseBuffer))
+		{
+			// Port is open
+			success = true;
+			break;
+		}
 	}
+	
+	// Revert back to minimal response time
+	uart.setTimeout(MIN_TIMEOUT);
+	
 	return (success);
 }
 
@@ -1479,14 +1662,23 @@ bool	WISMO228::openPort(const char	*server, const char *port)
 bool	WISMO228::exchangeData()
 {
 	bool	success = false;
+
+	// Revert to medium response time	
+	uart.setTimeout(MED_TIMEOUT);
 	
+	// Expecting data exchanging connection OK response
+	readFlash(connectOk, responseBuffer);	
 	// Initiate data exchange
 	uart.println(F("AT+WIPDATA=2,1,1"));
-			
-	if (replyCheck("\r\nCONNECT\r\n\0", REPLY_TIMEOUT))
+		
+	// If data exchanging is ready
+	if (uart.find(responseBuffer))
 	{
 		success = true;
 	}
+	
+	// Revert to minimum response time	
+	uart.setTimeout(MIN_TIMEOUT);
 	
 	return (success);
 }
@@ -1576,4 +1768,41 @@ void	WISMO228::encodeBase64(const char *input, char *output)
 	}
   // Terminate the output string
   *output = '\0';
+}
+
+/*******************************************************************************
+* Name: readFlash
+* Description: Retrieve string of characters from flash memory.
+*
+* Argument  			Description
+* =========  			===========
+* 1. sourcePtr		String of characters stored in flash memory.
+*
+*	2. targetPtr  	Location to store retrieved string in RAM. 
+*
+* Return					Description
+* =========				===========
+* 1. NIL
+*
+*******************************************************************************/
+void WISMO228::readFlash(char *sourcePtr, char *targetPtr)
+{
+  // Read from flash until end of string 
+  while (true)
+  {
+    // Retrieve a byte from flash
+    *targetPtr = pgm_read_byte(sourcePtr++);
+  
+    // If end of string is found
+    if (*targetPtr == '\0')
+    {
+      // All string characters retrieved
+      break;
+    }
+    else
+    {
+      // Move on to the next character
+      targetPtr++;
+    }
+  }
 }

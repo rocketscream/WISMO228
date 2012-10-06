@@ -1,5 +1,5 @@
 #######################################
-# Syntax Coloring Map LowPower
+# Syntax Coloring Map WISMO228
 #######################################
 
 #######################################
@@ -23,6 +23,7 @@ openGPRS	KEYWORD2
 closeGPRS	KEYWORD2
 ping	KEYWORD2
 getHttp	KEYWORD2
+putHttp	KEYWORD2 
 sendEmail	KEYWORD2
 getClock	KEYWORD2
 setClock	KEYWORD2

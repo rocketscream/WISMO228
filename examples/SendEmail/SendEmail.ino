@@ -1,35 +1,35 @@
 /*******************************************************************************
- * WISMO228 Library - GSM RSSI Example
- * Version: 1.00
- * Date: 28-03-2012
- * Company: Rocket Scream Electronics
- * Website: www.rocketscream.com
- *
- * This is an example on retrieving RSSI (Receive Signal Strength Indicator) of
- * the GSM signal using the WISMO228 library on the TraLog Shield. Retrieved 
- * RSSI value is in units of dBm. 
- *
- * ============
- * Requirements
- * ============
- * 1. UART selection switch to SW position (uses pin D5 (RX) & D6 (TX)).
- * 2. Jumper J14 is closed to allow usage of pin A2 to control on-off state of 
- *    WISMO228 module.
- * 3. You need to know your service provider APN name, username, and password. If
- *    they don't specify the username and password, you can use " ". Notice the
- *    space in between the quote mark.
- * 4. You also need to know your SMTP server name and port number.
- * 5. The password is in plain text and will be converted into Base-64 format
- *    by the library internally.
- *
- * This example is licensed under Creative Commons Attribution-ShareAlike 3.0 
- * Unported License. 
- *
- * Revision  Description
- * ========  ===========
- * 1.00      Initial public release. Tested with L22 & L23 of WISMO228 firmware.
- *	     Only works with Arduino IDE 1.0.
- *******************************************************************************/
+* WISMO228 Library - Send Email Example
+* Version: 1.00
+* Date: 28-03-2012
+* Company: Rocket Scream Electronics
+* Author: Lim Phang Moh
+* Website: www.rocketscream.com
+*
+* This is an example on sending an email using the WISMO228 library on the 
+* TraLog Shield.
+*
+* ============
+* Requirements
+* ============
+* 1. UART selection switch to SW position (uses pin D5 (RX) & D6 (TX)).
+* 2. Jumper J14 is closed to allow usage of pin A2 to control on-off state of 
+*    WISMO228 module.
+* 3. You need to know your service provider APN name, username, and password. If
+*    they don't specify the username and password, you can use " ". Notice the
+*    space in between the quote mark.
+* 4. You also need to know your SMTP server name and port number.
+* 5. The email password is in plain text and will be converted into Base-64 
+*    format by the library internally.
+*
+* This example is licensed under Creative Commons Attribution-ShareAlike 3.0 
+* Unported License. 
+*
+* Revision  Description
+* ========  ===========
+* 1.00      Initial public release. Tested with L22 & L23 of WISMO228 firmware.
+*           Only works with Arduino IDE 1.0 & 1.0.1.
+*******************************************************************************/
 // ***** INCLUDES *****
 #include "SoftwareSerial.h"
 #include <WISMO228.h>
@@ -108,7 +108,3 @@ void loop()
 {
   // Let's count sheep instead
 }
-
-
-
-

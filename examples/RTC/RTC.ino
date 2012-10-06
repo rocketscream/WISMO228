@@ -1,31 +1,31 @@
 /*******************************************************************************
- * WISMO228 Library - RTC Usage Example
- * Version: 1.00
- * Date: 28-03-2012
- * Company: Rocket Scream Electronics
- * Website: www.rocketscream.com
- *
- * This is an example on RTC usage with the WISMO228 library on the TraLog 
- * Shield.
- *
- * ============
- * Requirements
- * ============
- * 1. UART selection switch to SW position (uses pin D5 (RX) & D6 (TX)).
- * 2. Jumper J14 is closed to allow usage of pin A2 to control on-off state of 
- *    WISMO228 module.
- * 3. If you plan to maintain the RTC even with main power removed, insert a
- *    CR1220 Lithium 3V coin cell in the coin cell holder on the bottom side of 
- *    the TraLog Shield.It should last you for nearly 12 months!
- *
- * This example is licensed under Creative Commons Attribution-ShareAlike 3.0 
- * Unported License. 
- *
- * Revision  Description
- * ========  ===========
- * 1.00      Initial public release. Tested with L22 & L23 of WISMO228 firmware.
- *	     Only works with Arduino IDE 1.0.
- *******************************************************************************/
+* WISMO228 Library - RTC Usage Example
+* Version: 1.00
+* Date: 28-03-2012
+* Company: Rocket Scream Electronics
+* Website: www.rocketscream.com
+*
+* This is an example on RTC usage with the WISMO228 library on the TraLog 
+* Shield.
+*
+* ============
+* Requirements
+* ============
+* 1. UART selection switch to SW position (uses pin D5 (RX) & D6 (TX)).
+* 2. Jumper J14 is closed to allow usage of pin A2 to control on-off state of 
+*    WISMO228 module.
+* 3. If you plan to maintain the RTC even with main power removed, insert a
+*    CR1220 Lithium 3V coin cell in the coin cell holder on the bottom side of 
+*    the TraLog Shield.It should last you for nearly 12 months!
+*
+* This example is licensed under Creative Commons Attribution-ShareAlike 3.0 
+* Unported License. 
+*
+* Revision  Description
+* ========  ===========
+* 1.00      Initial public release. Tested with L22 & L23 of WISMO228 firmware.
+*           Only works with Arduino IDE 1.0.
+*******************************************************************************/
 // ***** INCLUDES *****
 #include "SoftwareSerial.h"
 #include <WISMO228.h>
@@ -90,6 +90,6 @@ void loop()
     Serial.print("Current clock: ");
     Serial.println(clock);
   }
-  // Check RTC every 5 s
+  // Check RTC every 1 s
   delay(1000);
 }
