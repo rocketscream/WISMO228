@@ -2,6 +2,7 @@
 #define WISMO228_h
 #include	<avr/pgmspace.h>
 #include	<SoftwareSerial.h>
+#include "Arduino.h"
 
 #define NC	0xFF
 #define	BAUD_RATE	9600
@@ -25,10 +26,13 @@ class WISMO228
 {
 	public:
 	
-		WISMO228(unsigned char rxPin, unsigned char txPin, unsigned char onOffPin);	
-		WISMO228(unsigned char rxPin, unsigned char txPin, unsigned char onOffPin, 
-						 unsigned char ringPin, void (*newSmsFunction)(void));	
-				 
+    WISMO228(HardwareSerial *hardwarePort, unsigned char onOffPin);
+    WISMO228(SoftwareSerial *softwarePort, unsigned char onOffPin);
+    WISMO228(HardwareSerial *hardwarePort, unsigned char onOffPin, 
+					   unsigned char ringPin, void (*newSmsFunction)(void));
+    WISMO228(SoftwareSerial *softwarePort, unsigned char onOffPin, 
+					   unsigned char ringPin, void (*newSmsFunction)(void));
+			 
 		void	init();
 		void	shutdown();
 		bool	powerUp();
@@ -48,7 +52,7 @@ class WISMO228
 		
 		bool	sendEmail(const char *smtpServer, const char	*port, 
 										const char *username, const char *password, 
-										const char *recipient, const char *title, 
+									  const char *recipient, const char *title, 
 										const char *content);
 		
 		bool	getClock(char *clock);
@@ -73,12 +77,10 @@ class WISMO228
 		void	encodeBase64(const char *input, char *output);
 		void	readFlash(char *sourcePtr, char *targetPtr);
 		
-		SoftwareSerial	uart;
-		void	(*functionPtr)(void);
+		Stream *uart;
+    void	(*functionPtr)(void);
 		unsigned char	_onOffPin;
 		unsigned char	_ringPin;
 		status_t	status;
 };
-
-
 #endif

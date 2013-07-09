@@ -1,7 +1,7 @@
 /*******************************************************************************
 * WISMO228 Library - HTTP GET Example
-* Version: 1.00
-* Date: 28-03-2012
+* Version: 1.10
+* Date: 09-07-2013
 * Company: Rocket Scream Electronics
 * Author: Lim Phang Moh
 * Website: www.rocketscream.com
@@ -10,16 +10,17 @@
 * TraLog Shield. The goal of this example is to send data to a server using the
 * HTTP GET method of 2 data field (name & country code). The country code must
 * a valid 2 letters ISO3166 country code and any name submitted with links will
-* be rejected. Despite it's name "GET", we are not retrieving a website but it 
-* is possible although this is rather limited by the amount of RAM on the 
+* be rejected. Despite it's name "GET", we are not retrieving a website content
+* but it is possible although this is rather limited by the amount of RAM on the 
 * Arduino.
 *
 * ============
 * Requirements
 * ============
 * 1. UART selection switch to SW position (uses pin D5 (RX) & D6 (TX)).
-* 2. Jumper J14 is closed to allow usage of pin A2 to control on-off state of 
-*    WISMO228 module. This is the default factory setting.
+* 2. On v1 of the shield, jumper J14 is closed to allow usage of pin A2 to 
+*    control on-off state of WISMO228 module. On v2 of the shield, short the 
+*    jumper labelled A2 & GSM-ON. This is the default factory setting.
 * 3. You need to know your service provider APN name, username, and password. If
 *    they don't specify the username and password, you can use " ". Notice the
 *    space in between the quote mark. 
@@ -33,25 +34,30 @@
 *
 * Revision  Description
 * ========  ===========
+* 1.10      Updated to support WISMO228 Library version 1.20.
+*           Tested up to Arduino IDE 1.0.4.
 * 1.00      Initial public release. Tested with L22 & L23 of WISMO228 firmware.
-*           Only works with Arduino IDE 1.0.
+*           Only works with Arduino IDE 1.0 and above.
 *******************************************************************************/
 // ***** INCLUDES *****
 #include "SoftwareSerial.h"
 #include <WISMO228.h>
 
 // ***** PIN ASSIGNMENT *****
-const  uint8_t  rxPin = 5;
-const  uint8_t  txPin = 6;
-const  uint8_t  onOffPin = A2;
+const  uint8_t  gsmRxPin = 5;
+const  uint8_t  gsmTxPin = 6;
+const  uint8_t  gsmOnOffPin = A2;
 
 // ***** CONSTANTS *****
 const  char  apn[] = "apn";
 const  char  username[] = "username";
 const  char  password[] = "password";
 
+// ***** CLASSES *****
+// Software serial class
+SoftwareSerial gsm(gsmRxPin, gsmTxPin); 
 // WISMO228 class
-WISMO228  wismo(rxPin, txPin, onOffPin);
+WISMO228  wismo(&gsm, gsmOnOffPin);
 
 void setup()  
 {
@@ -71,6 +77,7 @@ void setup()
   {
     Serial.println("TraLog is awake!");
     Serial.println("Let's send some data!");
+		Serial.println("Connecting to GPRS...");
 
     // Connect to GPRS network
     if (wismo.openGPRS(apn, username, password))

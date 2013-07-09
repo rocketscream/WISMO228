@@ -1,7 +1,7 @@
 /*******************************************************************************
 * WISMO228 Library - HTTP GET Example
-* Version: 1.00
-* Date: 04-08-2012
+* Version: 1.10
+* Date: 09-07-2013
 * Company: Rocket Scream Electronics
 * Author: Lim Phang Moh
 * Website: www.rocketscream.com
@@ -13,8 +13,9 @@
 * Requirements
 * ============
 * 1. UART selection switch to SW position (uses pin D5 (RX) & D6 (TX)).
-* 2. Jumper J14 is closed to allow usage of pin A2 to control on-off state of 
-*    WISMO228 module. This is the default factory setting.
+* 2. On v1 of the shield, jumper J14 is closed to allow usage of pin A2 to 
+*    control on-off state of WISMO228 module. On v2 of the shield, short the 
+*    jumper labelled A2 & GSM-ON. This is the default factory setting.
 * 3. You need to know your service provider APN name, username, and password. 
 *    If they don't specify the username and password, you can use " ". Notice 
 *    the space in between the quote mark. 
@@ -33,6 +34,8 @@
 *
 * Revision  Description
 * ========  ===========
+* 1.10      Updated to support WISMO228 Library version 1.20.
+*           Tested up to Arduino IDE 1.0.4.
 * 1.00      Initial public release. Tested with L22 & L23 of WISMO228 firmware.
 *           Only works with Arduino IDE 1.0 & 1.0.1. Uses v1.10 of the WISMO228 
 *           library.
@@ -66,8 +69,10 @@ const  char stream[] = "InsertYourDataStreamNameHere";
 #define UPDATE_INTERVAL 60000
 
 // ***** CLASSES *****
+// Software serial class
+SoftwareSerial gsm(gsmRxPin, gsmTxPin); 
 // WISMO228 class
-WISMO228  wismo(gsmRxPin, gsmTxPin, gsmOnOffPin);
+WISMO228  wismo(&gsm, gsmOnOffPin);
 
 // ***** VARIABLES *****
 char  data[32];
@@ -96,8 +101,8 @@ void setup()
     #endif
   }
   
-  // Set sensor reading & feed interval
-  scheduler = millis() + UPDATE_INTERVAL;
+  // Initialize sensor reading & feed interval
+  scheduler = millis();
 }
 
 void loop() 
