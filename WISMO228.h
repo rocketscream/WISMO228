@@ -1,5 +1,6 @@
 #ifndef WISMO228_h
 #define WISMO228_h
+#define __PROG_TYPES_COMPAT__
 #include	<avr/pgmspace.h>
 #include	<SoftwareSerial.h>
 #include "Arduino.h"
@@ -75,7 +76,7 @@ class WISMO228
 		bool	waitForReply(unsigned char count, long period);
 		int	  rssiToDbm(int	rssi);
 		void	encodeBase64(const char *input, char *output);
-		void	readFlash(char *sourcePtr, char *targetPtr);
+		void	readFlash(const char *sourcePtr, char *targetPtr);
 		
 		Stream *uart;
     void	(*functionPtr)(void);

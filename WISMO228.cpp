@@ -47,35 +47,35 @@
 
 // ***** CONSTANTS *****
 // ***** EXPECTED WISMO228 RESPONSE *****
-prog_char ok[] PROGMEM = "OK"; 
-prog_char simOk[] PROGMEM = "\r\n+CPIN: READY\r\n\r\nOK\r\n";
-prog_char networkOk[] PROGMEM = "\r\n+CREG: 0,1\r\n\r\nOK\r\n";
-prog_char smsCursor[] PROGMEM = "> ";
-prog_char smsSendOk[] PROGMEM = "\r\n+CMGS: ";
-prog_char smsList[] PROGMEM = "\r\n+CMGL: ";
-prog_char smsUnread[] PROGMEM = "\"REC UNREAD\",\"+";
-prog_char commaQuoteMark[] PROGMEM = ",\"";
-prog_char quoteMark[] PROGMEM = "\"";
-prog_char newLine[] PROGMEM = "\r\n";
-prog_char carriegeReturn[] PROGMEM = "\r";
-prog_char lineFeed[] PROGMEM = "\n";
-prog_char pingOk[] PROGMEM = "\r\nOK\r\n\r\n+WIPPING: 0,0,";
-prog_char clockOk[] PROGMEM = "\r\n+CCLK: \"";
-prog_char rssiCheck[] PROGMEM = "\r\n+CSQ: ";
-prog_char portOk[] PROGMEM = "+WIPREADY: 2,1\r\n";
-prog_char connectOk[] PROGMEM = "\r\nCONNECT\r\n";
-prog_char dataOk[] PROGMEM = "\r\n+WIPDATA: 2,1,";
-prog_char usernamePrompt[] PROGMEM = "334 VXNlcm5hbWU6\r\n";
-prog_char passwordPrompt[] PROGMEM = "334 UGFzc3dvcmQ6\r\n";
-prog_char authenticationOk[] PROGMEM = "235 Authentication succeeded\r\n";
-prog_char senderOk[] PROGMEM = "250 OK\r\n";
-prog_char recipientOk[] PROGMEM = "250 Accepted\r\n";
-prog_char emailInputPrompt[] PROGMEM = "354 ";
-prog_char emailSent[] PROGMEM = "250 OK ";
-prog_char shutdownLink[] PROGMEM = "SHUTDOWN";
+const static prog_char ok[] PROGMEM = "OK"; 
+const static prog_char simOk[] PROGMEM = "\r\n+CPIN: READY\r\n\r\nOK\r\n";
+const static prog_char networkOk[] PROGMEM = "\r\n+CREG: 0,1\r\n\r\nOK\r\n";
+const static prog_char smsCursor[] PROGMEM = "> ";
+const static prog_char smsSendOk[] PROGMEM = "\r\n+CMGS: ";
+const static prog_char smsList[] PROGMEM = "\r\n+CMGL: ";
+const static prog_char smsUnread[] PROGMEM = "\"REC UNREAD\",\"+";
+const static prog_char commaQuoteMark[] PROGMEM = ",\"";
+const static prog_char quoteMark[] PROGMEM = "\"";
+const static prog_char newLine[] PROGMEM = "\r\n";
+const static prog_char carriegeReturn[] PROGMEM = "\r";
+const static prog_char lineFeed[] PROGMEM = "\n";
+const static prog_char pingOk[] PROGMEM = "\r\nOK\r\n\r\n+WIPPING: 0,0,";
+const static prog_char clockOk[] PROGMEM = "\r\n+CCLK: \"";
+const static prog_char rssiCheck[] PROGMEM = "\r\n+CSQ: ";
+const static prog_char portOk[] PROGMEM = "+WIPREADY: 2,1\r\n";
+const static prog_char connectOk[] PROGMEM = "\r\nCONNECT\r\n";
+const static prog_char dataOk[] PROGMEM = "\r\n+WIPDATA: 2,1,";
+const static prog_char usernamePrompt[] PROGMEM = "334 VXNlcm5hbWU6\r\n";
+const static prog_char passwordPrompt[] PROGMEM = "334 UGFzc3dvcmQ6\r\n";
+const static prog_char authenticationOk[] PROGMEM = "235 Authentication succeeded\r\n";
+const static prog_char senderOk[] PROGMEM = "250 OK\r\n";
+const static prog_char recipientOk[] PROGMEM = "250 Accepted\r\n";
+const static prog_char emailInputPrompt[] PROGMEM = "354 ";
+const static prog_char emailSent[] PROGMEM = "250 OK ";
+const static prog_char shutdownLink[] PROGMEM = "SHUTDOWN";
 
 // ***** BASE64 ENCODING TABLE *****
-prog_uchar	base64Table[] PROGMEM =	{"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+const static prog_uchar	base64Table[] PROGMEM =	{"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 																			"abcdefghijklmnopqrstuvwxyz"
 																			"0123456789+/"};
 
@@ -1808,7 +1808,7 @@ void	WISMO228::encodeBase64(const char *input, char *output)
 * 1. NIL
 *
 *******************************************************************************/
-void WISMO228::readFlash(char *sourcePtr, char *targetPtr)
+void WISMO228::readFlash(const char *sourcePtr, char *targetPtr)
 {
   // Read from flash until end of string 
   while (true)
