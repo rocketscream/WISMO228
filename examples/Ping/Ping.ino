@@ -30,7 +30,7 @@
 *           Only works with Arduino IDE 1.0.
 *******************************************************************************/
 // ***** INCLUDES *****
-#include "SoftwareSerial.h"
+//#include "SoftwareSerial.h"
 #include <WISMO228.h>
 
 // ***** PIN ASSIGNMENT *****
@@ -45,14 +45,16 @@ const  char  password[] = "password";
 
 // ***** CLASSES *****
 // Software serial class
-SoftwareSerial gsm(gsmRxPin, gsmTxPin); 
+//SoftwareSerial gsm(gsmRxPin, gsmTxPin); 
 // WISMO228 class
-WISMO228  wismo(&gsm, gsmOnOffPin);
+//WISMO228  wismo(&gsm, gsmOnOffPin);
+WISMO_CREATE_DEFAULT_INSTANCE()
 
 void setup()  
 {
-  Serial.begin(9600);
-  Serial.println("Ping Example");
+	Serial.begin(115200);
+	while (!Serial) { ; } // wait for serial port to connect. Needed for Leonardo only
+	Serial.println("Ping Example");
 
   // Initialize WISMO228
   wismo.init();
