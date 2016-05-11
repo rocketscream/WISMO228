@@ -1,7 +1,7 @@
 /*******************************************************************************
 * WISMO228 Library
-* Version: 1.20
-* Date: 12-05-2013
+* Version: 1.30
+* Date: 11-05-2016
 * Company: Rocket Scream Electronics
 * Author: Lim Phang Moh
 * Website: www.rocketscream.com
@@ -25,6 +25,8 @@
 *
 * Revision  Description
 * ========  ===========
+* 1.30      Changes to SMTP server response handling (more general).
+*           Tested on Arduino IDE 1.0.6. 
 * 1.20      Added support for hardware serial (Serial, Serial1, Serial2, &
 *           Serial3) usage.
 *           SoftwareSerial object needs to be declared outside of library.
@@ -65,13 +67,11 @@ prog_char rssiCheck[] PROGMEM = "\r\n+CSQ: ";
 prog_char portOk[] PROGMEM = "+WIPREADY: 2,1\r\n";
 prog_char connectOk[] PROGMEM = "\r\nCONNECT\r\n";
 prog_char dataOk[] PROGMEM = "\r\n+WIPDATA: 2,1,";
-prog_char usernamePrompt[] PROGMEM = "334 VXNlcm5hbWU6\r\n";
-prog_char passwordPrompt[] PROGMEM = "334 UGFzc3dvcmQ6\r\n";
-prog_char authenticationOk[] PROGMEM = "235 Authentication succeeded\r\n";
-prog_char senderOk[] PROGMEM = "250 OK\r\n";
-prog_char recipientOk[] PROGMEM = "250 Accepted\r\n";
-prog_char emailInputPrompt[] PROGMEM = "354 ";
-prog_char emailSent[] PROGMEM = "250 OK ";
+prog_char smtpUsernamePrompt[] PROGMEM = "334 VXNlcm5hbWU6\r\n";
+prog_char smtpPasswordPrompt[] PROGMEM = "334 UGFzc3dvcmQ6\r\n";
+prog_char smtpOk[] PROGMEM = "250 ";
+prog_char smtpAuthenticationOk[] PROGMEM = "235 ";
+prog_char smtpInputPrompt[] PROGMEM = "354 ";
 prog_char shutdownLink[] PROGMEM = "SHUTDOWN";
 
 // ***** BASE64 ENCODING TABLE *****
@@ -1151,7 +1151,7 @@ bool WISMO228::sendEmail(const char *smtpServer, const char *port,
 	char	base64[50];
 	unsigned	int	dataCount;
 	//unsigned long	timeout;
-
+	
 	// Revert to minimum response time	
 	uart->setTimeout(MIN_TIMEOUT);
 	
@@ -1166,7 +1166,7 @@ bool WISMO228::sendEmail(const char *smtpServer, const char *port,
 			readFlash(dataOk, responseBuffer);
 			
 			// Retrieving data from web takes longer time
-			uart->setTimeout(MED_TIMEOUT);
+			uart->setTimeout(MAX_TIMEOUT);
 			
 			if (uart->find(responseBuffer))
 			{
@@ -1184,7 +1184,7 @@ bool WISMO228::sendEmail(const char *smtpServer, const char *port,
 				
 				// Convert data count into unsigned integer
 				sscanf(dataCountStr, "%u", &dataCount);
-				
+
 				uart->setTimeout(MIN_TIMEOUT);
 				
 				readFlash(lineFeed, responseBuffer);
@@ -1201,7 +1201,8 @@ bool WISMO228::sendEmail(const char *smtpServer, const char *port,
 							rxByte = uart->read();
 						}
 						// Start communicating with server using extended SMTP protocol
-						uart->println(F("EHLO"));
+						uart->print(F("EHLO "));
+						uart->println(smtpServer);
 						
 						delay (5000);
 
@@ -1211,7 +1212,7 @@ bool WISMO228::sendEmail(const char *smtpServer, const char *port,
 						uart->println(F("AUTH LOGIN"));
 						
 						// Retrieve string of username prompt in base 64 format from flash
-						readFlash(usernamePrompt, responseBuffer);
+						readFlash(smtpUsernamePrompt, responseBuffer);
 							
 						// If receive the username prompt in base 64 format
 						if (uart->find(responseBuffer))
@@ -1222,7 +1223,7 @@ bool WISMO228::sendEmail(const char *smtpServer, const char *port,
 							uart->println(base64);
 							
 							// Retrieve string of password prompt in base 64 format from flash
-							readFlash(passwordPrompt, responseBuffer);
+							readFlash(smtpPasswordPrompt, responseBuffer);
 							
 							// If receive the password prompt in base 64 format
 							if (uart->find(responseBuffer))
@@ -1234,25 +1235,27 @@ bool WISMO228::sendEmail(const char *smtpServer, const char *port,
 								
 								// Retrieve string of authentication success in base 64 format 
 								// from flash
-								readFlash(authenticationOk, responseBuffer);
+								readFlash(smtpAuthenticationOk, responseBuffer);
 								
 								// If receive authentication success
 								if (uart->find(responseBuffer))
 								{
 									// Email sender
-									uart->print(F("MAIL FROM: "));
-									uart->println(username);
+									uart->print(F("MAIL FROM: <"));
+									uart->print(username);
+									uart->println(F(">"));
 									
-									readFlash(senderOk, responseBuffer);
+									readFlash(smtpOk, responseBuffer);
 									
 									// If sender ok
 									if (uart->find(responseBuffer))
 									{
 										// Email recipient
-										uart->print(F("RCPT TO: "));
-										uart->println(recipient);
+										uart->print(F("RCPT TO: <"));
+										uart->print(recipient);
+										uart->println(F(">"));
 										
-										readFlash(recipientOk, responseBuffer);
+										readFlash(smtpOk, responseBuffer);
 										
 										// If recipient ok
 										if (uart->find(responseBuffer))
@@ -1260,7 +1263,7 @@ bool WISMO228::sendEmail(const char *smtpServer, const char *port,
 											// Start of email body
 											uart->println(F("DATA"));
 											
-											readFlash(emailInputPrompt, responseBuffer);
+											readFlash(smtpInputPrompt, responseBuffer);
 											
 											// If receive start email input prompt
 											if (uart->find(responseBuffer))
@@ -1286,7 +1289,7 @@ bool WISMO228::sendEmail(const char *smtpServer, const char *port,
 												uart->print(content);
 												uart->print(F("\r\n.\r\n"));
 												
-												readFlash(emailSent, responseBuffer);
+												readFlash(smtpOk, responseBuffer);
 												
 												// Email successfully sent
 												if (uart->find(responseBuffer))
